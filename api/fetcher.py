@@ -1,3 +1,4 @@
+import time
 import requests
 from api.auth import get_auth_headers, get_timestamp
 from config.settings import CANDLE_INTERVAL, CANDLE_LIMIT
@@ -28,19 +29,38 @@ def get_active_instruments():
 # ── Candles ────────────────────────────────────────────
 def get_candles(symbol: str) -> list:
     """
-    Fetch OHLCV candle data for a futures symbol.
+    Fetch OHLCV candle data for a futures symbol using official Futures API.
     """
+    # Calculate time range
+    # resolution is in minutes (default 60), limit is number of candles (default 100)
+    to_ts = int(time.time())
+    
+    # Map resolution to seconds
+    if CANDLE_INTERVAL == "1D":
+        offset_seconds = 86400
+    else:
+        offset_seconds = int(CANDLE_INTERVAL) * 60
+        
+    from_ts = to_ts - (CANDLE_LIMIT * offset_seconds)
+
     params = {
         "pair":       symbol,
-        "interval":   CANDLE_INTERVAL,
-        "limit":      CANDLE_LIMIT,
+        "from":       from_ts,
+        "to":         to_ts,
+        "resolution": CANDLE_INTERVAL,
+        "pcode":      "f"  # CRITICAL: 'f' identifies this as Futures data
     }
+    
     resp = requests.get(
-        "https://public.coindcx.com/market_data/candles/",
+        "https://public.coindcx.com/market_data/candlesticks",
         params=params
     )
+    
     if resp.status_code == 200:
-        return resp.json()
+        data = resp.json()
+        # Futures API returns { "s": "ok", "data": [...] }
+        return data.get("data", [])
+        
     logger.error(f"Failed to fetch candles for {symbol}: {resp.status_code} {resp.text}")
     return []
 
