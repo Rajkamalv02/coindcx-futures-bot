@@ -2,15 +2,20 @@ import pandas as pd
 from config.settings import (
     EMA_FAST, EMA_SLOW,
     RSI_LONG_MIN, RSI_SHORT_MAX,
-    ATR_MULTIPLIER_TARGET, ATR_MULTIPLIER_SL
+    ATR_MULTIPLIER_TARGET, ATR_MULTIPLIER_SL,
+    USDT_INR_RATE
 )
 from utils.logger import logger
+
+
+def _to_inr(usdt_value: float) -> float:
+    return round(usdt_value * USDT_INR_RATE, 2)
 
 
 def detect_signal(df: pd.DataFrame, symbol: str) -> dict | None:
     """
     Detect EMA crossover signal on the latest two candles.
-    Returns signal dict, or None if no signal.
+    Returns signal dict with USDT and INR values, or None if no signal.
     """
     if df.empty or len(df) < EMA_SLOW + 2:
         return None
@@ -36,14 +41,24 @@ def detect_signal(df: pd.DataFrame, symbol: str) -> dict | None:
             curr[ema_fast] > curr[ema_slow] and
             rsi > RSI_LONG_MIN):
 
+        entry_usdt  = round(float(close), 4)
+        target_usdt = round(float(close + (atr * ATR_MULTIPLIER_TARGET)), 4)
+        sl_usdt     = round(float(close - (atr * ATR_MULTIPLIER_SL)), 4)
+        atr_usdt    = round(float(atr), 4)
+
         signal = {
-            "symbol":    symbol,
-            "direction": "LONG",
-            "entry":     round(float(close), 4),
-            "target":    round(float(close + (atr * ATR_MULTIPLIER_TARGET)), 4),
-            "stop_loss": round(float(close - (atr * ATR_MULTIPLIER_SL)), 4),
-            "rsi":       round(float(rsi), 2),
-            "atr":       round(float(atr), 4),
+            "symbol":        symbol,
+            "direction":     "LONG",
+            "entry":         entry_usdt,
+            "target":        target_usdt,
+            "stop_loss":     sl_usdt,
+            "rsi":           round(float(rsi), 2),
+            "atr":           atr_usdt,
+            "inr_rate":      USDT_INR_RATE,
+            "entry_inr":     _to_inr(entry_usdt),
+            "target_inr":    _to_inr(target_usdt),
+            "stop_loss_inr": _to_inr(sl_usdt),
+            "atr_inr":       _to_inr(atr_usdt),
         }
 
     # ── Death Cross → SHORT ────────────────────────────
@@ -51,14 +66,24 @@ def detect_signal(df: pd.DataFrame, symbol: str) -> dict | None:
               curr[ema_fast] < curr[ema_slow] and
               rsi < RSI_SHORT_MAX):
 
+        entry_usdt  = round(float(close), 4)
+        target_usdt = round(float(close - (atr * ATR_MULTIPLIER_TARGET)), 4)
+        sl_usdt     = round(float(close + (atr * ATR_MULTIPLIER_SL)), 4)
+        atr_usdt    = round(float(atr), 4)
+
         signal = {
-            "symbol":    symbol,
-            "direction": "SHORT",
-            "entry":     round(float(close), 4),
-            "target":    round(float(close - (atr * ATR_MULTIPLIER_TARGET)), 4),
-            "stop_loss": round(float(close + (atr * ATR_MULTIPLIER_SL)), 4),
-            "rsi":       round(float(rsi), 2),
-            "atr":       round(float(atr), 4),
+            "symbol":        symbol,
+            "direction":     "SHORT",
+            "entry":         entry_usdt,
+            "target":        target_usdt,
+            "stop_loss":     sl_usdt,
+            "rsi":           round(float(rsi), 2),
+            "atr":           atr_usdt,
+            "inr_rate":      USDT_INR_RATE,
+            "entry_inr":     _to_inr(entry_usdt),
+            "target_inr":    _to_inr(target_usdt),
+            "stop_loss_inr": _to_inr(sl_usdt),
+            "atr_inr":       _to_inr(atr_usdt),
         }
 
     if signal:

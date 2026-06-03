@@ -1,3 +1,6 @@
+# ── Currency ───────────────────────────────────────────
+USDT_INR_RATE = 102.0        # 1 USDT = ₹102 (update manually as needed)
+
 # ── Timeframe ──────────────────────────────────────────
 CANDLE_INTERVAL = "1h"       # 1m, 5m, 15m, 1h, 4h, 1d
 CANDLE_LIMIT    = 100        # number of candles to fetch
