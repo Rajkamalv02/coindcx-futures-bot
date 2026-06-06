@@ -3,7 +3,7 @@ import requests
 from dotenv import load_dotenv
 from api.auth import get_futures_auth_headers, get_timestamp
 from config.settings import DEFAULT_LEVERAGE, TRADE_AMOUNT_USDT
-from utils.logger import logger
+from utils.logger import trade_logger as logger
 
 load_dotenv()
 

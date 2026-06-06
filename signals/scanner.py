@@ -7,7 +7,7 @@ from config.settings import (
     VOLUME_MULTIPLIER, MIN_SCORE,
     USDT_INR_RATE, CANDLE_INTERVAL, CONFIRM_INTERVAL
 )
-from utils.logger import logger
+from utils.logger import scanner_logger as logger
 
 
 def _to_inr(usdt_value: float) -> float:
@@ -15,7 +15,7 @@ def _to_inr(usdt_value: float) -> float:
 
 
 def _find_recent_crossover(df: pd.DataFrame, ema_fast: str, ema_slow: str,
-                            lookback: int = 3) -> tuple[str, int]:
+                            lookback: int = 3) -> tuple[str | None, int]:
     """
     Check if a crossover happened within last `lookback` candles.
     Returns ('long', candles_ago) or ('short', candles_ago) or (None, 0)
@@ -232,7 +232,7 @@ def detect_signal(df: pd.DataFrame, symbol: str,
             }
 
     if signal:
-        logger.info(f"Signal [{score}/5] {symbol} {signal['direction']} "
-                    f"| crossover {candles_ago} candle(s) ago | {reasons}")
+        logger.info(f"Signal [{signal['score']}/5] {symbol} {signal['direction']} "
+                    f"| crossover {signal['candles_ago']} candle(s) ago | {signal['reasons']}")
 
     return signal

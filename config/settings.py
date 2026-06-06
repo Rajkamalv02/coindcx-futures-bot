@@ -7,7 +7,7 @@ USDT_INR_RATE = 102.0        # 1 USDT = ₹102 (update manually or via API)
 
 # ── Timeframes ─────────────────────────────────────────
 # Primary timeframe for signal detection
-CANDLE_INTERVAL = "60"       # '1', '5', '15', '60', '240', '1D'
+CANDLE_INTERVAL = "15"       # '1', '5', '15', '60', '240', '1D'
 CANDLE_LIMIT    = 150        # increased for EMA 50 warmup
 
 # Confirmation timeframe (must be higher than CANDLE_INTERVAL)
@@ -49,7 +49,7 @@ MIN_PRICE_USDT  = 0.5
 MIN_VOLUME_USDT = 500000
 
 # ── Scanner Loop ───────────────────────────────────────
-SCAN_INTERVAL_MINUTES = 2
+SCAN_INTERVAL_MINUTES = 5
 
 # ── Trading ────────────────────────────────────────────
 DEFAULT_LEVERAGE     = int(os.getenv("DEFAULT_LEVERAGE", 3))
