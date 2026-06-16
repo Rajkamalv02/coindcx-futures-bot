@@ -57,3 +57,4 @@ scanner_logger = setup_logger('scanner', f'scanner_{CURRENT_DATE}.log', include_
 
 # Trading specific logger (Console + File - important)
 trade_logger = setup_logger('trading', f'trading_{CURRENT_DATE}.log', include_console=True)
+api_logger = setup_logger('coindcx', f'coindcx_{CURRENT_DATE}.log', include_console=False)
