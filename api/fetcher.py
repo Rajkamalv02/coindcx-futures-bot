@@ -1,6 +1,6 @@
 import time
-import requests
 from api.auth import get_auth_headers, get_timestamp
+from utils.api_helper import APISession as requests
 from config.settings import CANDLE_INTERVAL, CANDLE_LIMIT, CONFIRM_INTERVAL
 from utils.logger import logger
 
@@ -23,6 +23,15 @@ def get_active_instruments():
     if resp.status_code == 200:
         return resp.json()
     logger.error(f"Failed to fetch instruments: {resp.status_code}")
+    return []
+
+
+def get_futures_specs():
+    """Fetches detailed specifications for all instruments."""
+    resp = requests.get("https://api.coindcx.com/exchange/v1/markets_details")
+    if resp.status_code == 200:
+        return resp.json()
+    logger.error(f"Failed to fetch futures specs: {resp.status_code}")
     return []
 
 
