@@ -108,6 +108,21 @@ def get_ticker(symbol: str) -> dict:
     return {}
 
 
+# ── Historical Candles for Backtest ───────────────────
+def get_historical_candles(symbol: str, days: int) -> list:
+    if CANDLE_INTERVAL == "1D":
+        limit = days
+    else:
+        # Assuming CANDLE_INTERVAL is in minutes
+        limit = (days * 24 * 60) // int(CANDLE_INTERVAL)
+    
+    # Cap limit at 5000 if needed (CoinDCX typically has limits)
+    limit = min(limit, 5000)
+    
+    logger.info(f"Fetching {limit} historical candles for {symbol} ({days} days)")
+    return _fetch_candles(symbol, CANDLE_INTERVAL, limit)
+
+
 # ── Filtered Symbols ───────────────────────────────────
 def get_filtered_symbols(min_price: float = 0.5, min_volume: float = 500000) -> list:
     instruments_resp = requests.get(

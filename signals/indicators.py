@@ -51,6 +51,9 @@ def calculate_indicators(df: pd.DataFrame, symbol: str = "default") -> pd.DataFr
     # Volume MA
     df['volume_ma'] = df['volume'].rolling(window=VOLUME_MA_PERIOD).mean()
 
+    # RSI (Re-added for overbought/oversold filtering)
+    df['rsi'] = ta.rsi(df['close'], length=14)
+
     return df
 
 
@@ -73,8 +76,8 @@ def get_confirm_trend(df_confirm: pd.DataFrame, symbol: str = "default") -> str:
     if any(pd.isna(v) for v in [ema_fast, ema_slow, ema_trend]):
         return 'neutral'
 
-    if ema_fast > ema_slow > ema_trend:
+    if ema_fast > ema_slow:
         return 'bullish'
-    elif ema_fast < ema_slow < ema_trend:
+    elif ema_fast < ema_slow:
         return 'bearish'
     return 'neutral'

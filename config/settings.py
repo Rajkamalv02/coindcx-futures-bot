@@ -28,7 +28,7 @@ MACD_SIGNAL = 9
 
 # ── ADX Settings ───────────────────────────────────────
 ADX_PERIOD = 14
-ADX_MIN_THRESHOLD = 20
+ADX_MIN_THRESHOLD = 15
 
 # RSI removed to keep system simple
 
@@ -42,7 +42,12 @@ ATR_MULTIPLIER_SL     = 1.2
 TARGET_PROFIT_PERCENT = 0.05 # 5% profit on investment (margin) excluding leverage
 
 # ── Signal Scoring ─────────────────────────────────────
-MIN_SCORE = 3                # minimum score out of 5 to send alert (3+ for quality signals)
+MIN_SCORE = 3                # minimum score out of 6 to send alert (3+ for quality signals)
+
+# ── Dynamic Backtest Settings ──────────────────────────
+BACKTEST_DAYS = 30           # Look back period for dynamic backtest
+BACKTEST_MIN_WIN_RATE = 0.40 # Skip signal if historical win rate is below 40%
+BACKTEST_MIN_TRADES = 5      # Need at least 5 historical trades to judge performance
 
 # Impulse and BOS/CHOCH settings removed
 
@@ -52,7 +57,7 @@ MIN_PRICE_USDT  = 0.5
 MIN_VOLUME_USDT = 500000
 
 # ── Scanner Loop ───────────────────────────────────────
-SCAN_INTERVAL_MINUTES = 2   # scan every 60 min to match 1H candle timeframe
+SCAN_INTERVAL_MINUTES = 5   # Increased to 5 min to reduce duplicate candle analysis
 
 # ── Trading ────────────────────────────────────────────
 DEFAULT_LEVERAGE     = int(os.getenv("DEFAULT_LEVERAGE", 3))

@@ -4,11 +4,12 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from config.settings import (
     WATCHLIST, SCAN_INTERVAL_MINUTES, ENABLE_AUTO_TRADING,
-    TRADE_THRESHOLD_INR, USDT_INR_RATE, MIN_SCORE
+    TRADE_THRESHOLD_INR, USDT_INR_RATE, MIN_SCORE,
+    BACKTEST_DAYS, BACKTEST_MIN_WIN_RATE, BACKTEST_MIN_TRADES
 )
-from api.fetcher import get_filtered_symbols, get_candles, get_confirm_candles
+from api.fetcher import get_filtered_symbols, get_candles, get_confirm_candles, get_historical_candles
 from signals.indicators import build_dataframe, calculate_indicators, get_confirm_trend
-from signals.scanner import detect_signal
+from signals.scanner import detect_signal, run_quick_backtest
 from alerts.telegram import send_signal
 from trading.order import place_limit_order, get_order_status, get_trade_details, get_symbol_trades
 from trading.position import get_futures_balance, get_open_positions
@@ -26,15 +27,61 @@ _signal_cache: dict = {}
 SIGNAL_COOLDOWN_MINUTES = 60  # don't repeat same signal within 60 min
 
 
+# def _is_duplicate(symbol: str, direction: str) -> bool:
+#     """
+#     Check if a signal is duplicate based on:
+#     1. Local memory cache (cooldown)
+#     2. Active trades in DB
+#     3. Pending orders in DB
+#     """
+#     key      = f"{symbol}_{direction}"
+#     now      = time.time()
+    
+#     # 1. Local Cache Check
+#     with _cache_lock:
+#         last_ts  = _signal_cache.get(key, 0)
+#         if now - last_ts < SIGNAL_COOLDOWN_MINUTES * 60:
+#             return True
+
+#     # 2. Database Check (Active Trades)
+#     active = get_active_trades()
+#     if any(t['symbol'] == symbol for t in active):
+#         return True
+
+#     # 3. Database Check (Pending Orders)
+#     pending = get_open_orders()
+#     if any(o['symbol'] == symbol for o in pending):
+#         return True
+
+#     # Update cache if not duplicate
+#     with _cache_lock:
+#         _signal_cache[key] = now
+#     return False
+
 def _is_duplicate(symbol: str, direction: str) -> bool:
-    key      = f"{symbol}_{direction}"
-    now      = time.time()
+    """Read-only — does NOT mutate the cache."""
+    key = f"{symbol}_{direction}"
+    now = time.time()
+
     with _cache_lock:
-        last_ts  = _signal_cache.get(key, 0)
+        last_ts = _signal_cache.get(key, 0)
         if now - last_ts < SIGNAL_COOLDOWN_MINUTES * 60:
             return True
-        _signal_cache[key] = now
+
+    active = get_active_trades()
+    if any(t['symbol'] == symbol for t in active):
+        return True
+
+    pending = get_open_orders()
+    if any(o['symbol'] == symbol for o in pending):
+        return True
+
     return False
+
+
+def _mark_signal_sent(symbol: str, direction: str):
+    with _cache_lock:
+        _signal_cache[f"{symbol}_{direction}"] = time.time()
 
 def _norm_sym(symbol: str) -> str:
     if not symbol: return ""
@@ -52,11 +99,23 @@ def check_order_statuses():
     # PHASE 1 – Pending Orders  (placed / open / initial)
     # ──────────────────────────────────────────────────────
     # Build normalised set of live position symbols from CoinDCX
-    live_positions  = get_open_positions()
-    live_norm_syms  = set()
+    # live_positions  = get_open_positions()
+    # live_norm_syms  = set()
+    # for pos in live_positions:
+    #     raw = pos.get("pair") or pos.get("symbol") or ""
+    #     if raw:
+    #         live_norm_syms.add(_norm_sym(raw))
+
+    live_positions = get_open_positions()
+    if live_positions is None:
+        trade_logger.warning("⚠️ Positions fetch failed — skipping exit detection this cycle to avoid false closes.")
+        trade_logger.info("=== check_order_statuses() END ===")
+        return
+    live_norm_syms = set()
     for pos in live_positions:
         raw = pos.get("pair") or pos.get("symbol") or ""
-        if raw:
+        size = abs(float(pos.get("active_pos", 0) or 0))
+        if raw and size > 0:          # only count genuinely open positions
             live_norm_syms.add(_norm_sym(raw))
 
     open_orders = get_open_orders()
@@ -275,17 +334,55 @@ def process_symbol(symbol: str, sent_this_run: set) -> dict | None:
         signal = detect_signal(df, symbol, confirm_trend)
 
         if signal:
+            # ── Dynamic Backtest (Expectancy Check) ────────
+            try:
+                scanner_logger.info(f"⏳ Running dynamic backtest for {symbol} ({BACKTEST_DAYS} days)...")
+                hist_candles = get_historical_candles(symbol, BACKTEST_DAYS)
+                if not hist_candles:
+                    logger.warning(f"  ⚠️ Backtest skipped: No history for {symbol}")
+                else:
+                    df_hist = build_dataframe(hist_candles)
+                    df_hist = calculate_indicators(df_hist, symbol=symbol)
+                    bt = run_quick_backtest(df_hist)
+                    
+                    pnl = bt['net_pnl']
+                    wr  = bt['win_rate']
+                    tr  = bt['total_trades']
+                    
+                    # Log the metrics for transparency to both File & Console
+                    msg = f"📊 Backtest {symbol}: WR={wr:.0%}, Net={pnl:+.2f}%, Count={tr}"
+                    scanner_logger.info(msg)
+                    
+                    if tr >= BACKTEST_MIN_TRADES and pnl < 0:
+                        logger.warning(f"  ❌ {symbol} rejected: Negative expectancy ({pnl:+.2f}%) over {tr} trades.")
+                        return None
+                    
+                    if tr < BACKTEST_MIN_TRADES:
+                        logger.info(f"  ⚠️ {symbol} backtest thin ({tr} trades), allowing for now.")
+                    else:
+                        logger.info(f"  ✅ {symbol} passed backtest! Expectancy: {pnl:+.2f}%")
+                    
+                    signal['backtest_pnl'] = pnl
+                    signal['backtest_wr']  = wr
+            except Exception as bt_err:
+                logger.error(f"  ❌ Backtest engine failure for {symbol}: {bt_err}")
+                return None
+
             key = f"{symbol}_{signal['direction']}"
 
-            # Block if already sent this run OR within cooldown
+            # Block if already sent this run OR within cooldown OR already in DB
             with _sent_lock:
-                if key in sent_this_run or _is_duplicate(symbol, signal['direction']):
-                    scanner_logger.info(f"Duplicate skipped: {symbol} {signal['direction']}")
+                if key in sent_this_run:
                     return None
+                
+                if _is_duplicate(symbol, signal['direction']):
+                    scanner_logger.info(f"Duplicate/Active skipped: {symbol} {signal['direction']}")
+                    return None
+                
                 sent_this_run.add(key)
 
             # Signal found! Log to scanner log
-            scanner_logger.info(f"🔍 Signal Detected: {symbol} {signal['direction']} (Score: {signal['score']}/5)")
+            scanner_logger.info(f"🔍 Signal Detected: {symbol} {signal['direction']} (Score: {signal['score']}/6)")
             return signal
 
         else:
@@ -323,22 +420,44 @@ def execute_trades(found_signals: list):
     if PAPER_TRADING and balance_inr < TRADE_THRESHOLD_INR:
         trade_logger.info("🧪 Paper Trading: Using MOCK balance (₹10,000.0) for simulation.")
         balance_inr = 10000.0
+        balance_usdt = balance_inr / USDT_INR_RATE
 
-    per_trade_usdt = round(TRADE_THRESHOLD_INR / USDT_INR_RATE, 2)
+    # Calculate max trades: allow at least 1 if we have ₹100+
     max_trades = int(balance_inr // TRADE_THRESHOLD_INR)
+    if max_trades == 0 and balance_inr >= 100:
+        max_trades = 1
+        trade_logger.info(f"ℹ️ Balance (₹{balance_inr:.2f}) is below threshold, allowing 1 trade with remainder.")
+
     trade_logger.info(f"💹 Ranking Results: {len(ranked_signals)} signals found.")
-    trade_logger.info(f"💰 Balance: ₹{balance_inr:.2f} | Allowance: ₹{TRADE_THRESHOLD_INR} (~{per_trade_usdt} USDT) | Max Trades: {max_trades}")
+    trade_logger.info(f"💰 Balance: ₹{balance_inr:.2f} | Threshold: ₹{TRADE_THRESHOLD_INR} | Max Trades: {max_trades}")
     
     # 3. Process top signals
     executed_count = 0
+    remaining_balance_usdt = balance_usdt
+    
     for signal in ranked_signals:
         if executed_count >= max_trades:
             trade_logger.info(f"⏹️ Trade limit reached ({max_trades}). Skipping {signal['symbol']} (Score: {signal['score']})")
             continue
             
+        # Amount for THIS trade: Use threshold OR all remaining balance
+        threshold_usdt = round(TRADE_THRESHOLD_INR / USDT_INR_RATE, 2)
+        amount_to_use_usdt = min(threshold_usdt, remaining_balance_usdt)
+        
+        if amount_to_use_usdt < 1.0: # Minimum 1 USDT for order
+            trade_logger.warning(f"⚠️ Skipping {signal['symbol']}: Residual balance too low ({amount_to_use_usdt:.2f} USDT)")
+            continue
+
         symbol = signal['symbol']
+        
+        # Final safety: check if we already have an active/pending trade for this symbol
+        # (This handles the case if a signal was found but another thread already placed it)
+        if _is_duplicate(symbol, signal['direction']):
+            trade_logger.info(f"⏩ {symbol} skipped: Position/Order already exists in DB.")
+            continue
+
         try:
-            trade_logger.info(f"🚀 Executing Top Signal: {symbol} (Score: {signal['score']})")
+            trade_logger.info(f"🚀 Executing Top Signal: {symbol} (Score: {signal['score']}) | Budget: {amount_to_use_usdt:.2f} USDT")
             
             order_result = place_limit_order(
                 symbol      = symbol,
@@ -346,7 +465,7 @@ def execute_trades(found_signals: list):
                 entry_price = signal['entry'],
                 tp_price    = signal.get('target'),
                 sl_price    = signal.get('stop_loss'),
-                amount_usdt = per_trade_usdt,
+                amount_usdt = amount_to_use_usdt,
             )
             
             signal.update(order_result)
@@ -358,9 +477,11 @@ def execute_trades(found_signals: list):
                 logger.error(f"Failed to send Telegram alert for {symbol}: {e}")
 
             if order_result.get("success"):
+                _mark_signal_sent(symbol, signal['direction'])
                 save_order(signal)
                 trade_logger.info(f"✅ Order successful for {symbol}")
                 executed_count += 1
+                remaining_balance_usdt -= amount_to_use_usdt
             else:
                 trade_logger.warning(f"❌ Order failed for {symbol}. Moving to next ranked signal.")
                 

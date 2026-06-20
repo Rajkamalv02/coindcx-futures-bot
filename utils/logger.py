@@ -20,6 +20,7 @@ error_file_handler.setFormatter(FORMATTER)
 
 # Shared Console Handler
 console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO) # Only print INFO and above to console
 console_handler.setFormatter(FORMATTER)
 
 def setup_logger(name, log_file, level=logging.INFO, include_console=False):
@@ -50,14 +51,14 @@ def setup_logger(name, log_file, level=logging.INFO, include_console=False):
 # ── Export Loggers ─────────────────────────────────────
 
 # General bot logger (Console + File)
-logger = setup_logger('bot', f'bot_{CURRENT_DATE}.log', include_console=True)
+logger = setup_logger('bot', f'bot_{CURRENT_DATE}.log', level=logging.DEBUG, include_console=True)
 
 # Scanner specific logger (FILE ONLY - high volume)
-scanner_logger = setup_logger('scanner', f'scanner_{CURRENT_DATE}.log', include_console=False)
+scanner_logger = setup_logger('scanner', f'scanner_{CURRENT_DATE}.log', level=logging.DEBUG, include_console=False)
 
 # Trading specific logger (Console + File - important)
-trade_logger = setup_logger('trading', f'trading_{CURRENT_DATE}.log', include_console=True)
-api_logger = setup_logger('coindcx', f'coindcx_{CURRENT_DATE}.log', include_console=False)
+trade_logger = setup_logger('trading', f'trading_{CURRENT_DATE}.log', level=logging.INFO, include_console=True)
+api_logger = setup_logger('coindcx', f'coindcx_{CURRENT_DATE}.log', level=logging.INFO, include_console=False)
 
 # ── CSV Ledger for PnL Tracking ────────────────────────
 import csv
