@@ -9,6 +9,30 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID")
 
 
+def send_message(text: str, parse_mode: str = "Markdown") -> bool:
+    """
+    Send a plain/markdown message to the configured Telegram chat.
+    Returns True on success.
+    """
+    try:
+        url  = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        data = {
+            "chat_id":    CHAT_ID,
+            "text":       text,
+            "parse_mode": parse_mode,
+        }
+        resp = requests.post(url, data=data, timeout=5)
+        if resp.status_code == 200:
+            logger.info("Telegram message sent successfully")
+            return True
+        logger.error(f"Telegram send_message failed: {resp.status_code} {resp.text}")
+        return False
+    except Exception as e:
+        logger.error(f"Telegram send_message exception: {e}")
+        return False
+
+
+
 def send_signal(signal: dict):
     direction  = signal['direction']
     emoji      = "🟢" if direction == "LONG" else "🔴"
@@ -52,9 +76,9 @@ def send_signal(signal: dict):
         f"💱 Rate      : `1 USDT = ₹{inr_rate}`\n\n"
         f"📌 Entry     : `₹{signal['entry_inr']:,.2f}` _(${ signal['entry'] })_\n"
         f"🎯 Target    : `₹{signal['target_inr']:,.2f}` _(${ signal['target'] })_\n"
-        f"🛑 Stop Loss : `₹{signal['stop_loss_inr']:,.2f}` _(${ signal['stop_loss'] })_\n"
-        f"📊 RSI       : `{signal['rsi']}`\n"
-        f"📉 ATR       : `₹{signal['atr_inr']:,.2f}` _(${ signal['atr'] })_"
+        f"🛑 Stop Loss : `₹{signal.get('stop_loss_inr', 0):,.2f}` _(${ signal.get('stop_loss', 0) })_\n"
+        f"📊 RSI       : `{signal.get('rsi', '-')}`\n"
+        f"📉 ATR       : `₹{signal.get('atr_inr', 0):,.2f}` _(${ signal.get('atr', 0) })_"
         f"{order_line}"
     )
 
@@ -65,7 +89,7 @@ def send_signal(signal: dict):
         "parse_mode": "Markdown"
     }
 
-    resp = requests.post(url, data=data)
+    resp = requests.post(url, data=data, timeout=5)
 
     if resp.status_code == 200:
         logger.info(f"Telegram alert sent for {signal['symbol']}")

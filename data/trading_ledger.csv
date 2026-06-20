@@ -1,0 +1,5 @@
+timestamp,symbol,direction,entry_price,exit_price,quantity,fees_usdt,net_pnl_usdt,reason
+2026-06-18 21:26:15,B-SOL_USDT,SHORT,69.96,70.02,0.21,0.008675,-0.0213,TP/SL/Manual (Auto-detected)
+2026-06-18 21:26:28,B-DASH_USDT,SHORT,34.84,34.89,0.421,0.008666,-0.0297,TP/SL/Manual (Auto-detected)
+2026-06-20 13:17:46,B-ASTER_USDT,LONG,0.646,0.646,22.0,0.003354,-0.0034,TP/SL/Manual (Auto-detected)
+2026-06-20 13:18:01,B-AVAX_USDT,LONG,6.172,6.157,2.0,0.007265,-0.0373,TP/SL/Manual (Auto-detected)

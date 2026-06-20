@@ -11,7 +11,7 @@ TRADE_THRESHOLD_INR = 500.0  # Amount in INR to allocate per trade
 # ── Timeframes ─────────────────────────────────────────
 # Primary timeframe for signal detection
 CANDLE_INTERVAL = "60"      # '1', '5', '15', '60', '240', '1D'
-CANDLE_LIMIT    = 150        # increased for EMA 50 warmup
+CANDLE_LIMIT    = 500        # increased for BOS/CHOCH and Impulse warmup
 
 # Confirmation timeframe (must be higher than CANDLE_INTERVAL)
 # 15m → 60, 60 → 240, 240 → 1D
@@ -40,11 +40,25 @@ VOLUME_MULTIPLIER = 1.2      # volume must be 1.2x above average
 
 # ── ATR Settings ───────────────────────────────────────
 ATR_PERIOD            = 14
-ATR_MULTIPLIER_TARGET = 3.0  # 1:3 RR
+ATR_MULTIPLIER_TARGET = 3.0  # 1:3 RR (Used as fallback if TARGET_PROFIT_PERCENT is 0)
 ATR_MULTIPLIER_SL     = 1.0
+TARGET_PROFIT_PERCENT = 0.05 # 5% profit on investment (margin) excluding leverage
 
 # ── Signal Scoring ─────────────────────────────────────
 MIN_SCORE = 3                # minimum score out of 5 to send alert (3+ for quality signals)
+
+# ── Impulse Engine Settings ──────────────────────────────
+IMPULSE_TREND_LEN = 19
+IMPULSE_LOOKBACK  = 5
+IMPULSE_DECAY     = 0.99
+IMPULSE_MAD_LEN   = 20
+IMPULSE_BAND_MIN  = 1.5
+IMPULSE_BAND_MAX  = 1.9
+
+# ── BOS/CHOCH Settings ──────────────────────────────────
+PIVOT_LOOKBACKS   = [1, 2, 3, 5, 11, 15, 20]
+MAX_ACTIVE_ZONES  = 50
+REQUIRE_INDUCEMENT = False
 
 # ── Symbol Filter ──────────────────────────────────────
 WATCHLIST       = []
@@ -52,7 +66,7 @@ MIN_PRICE_USDT  = 0.5
 MIN_VOLUME_USDT = 500000
 
 # ── Scanner Loop ───────────────────────────────────────
-SCAN_INTERVAL_MINUTES = 60   # scan every 60 min to match 1H candle timeframe
+SCAN_INTERVAL_MINUTES = 2   # scan every 60 min to match 1H candle timeframe
 
 # ── Trading ────────────────────────────────────────────
 DEFAULT_LEVERAGE     = int(os.getenv("DEFAULT_LEVERAGE", 3))

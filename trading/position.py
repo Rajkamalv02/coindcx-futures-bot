@@ -11,7 +11,7 @@ def get_open_positions() -> list:
     """
     try:
         body = {"timestamp": get_timestamp()}
-        headers, json_body = get_auth_headers(body)
+        headers, json_body = get_futures_auth_headers(body)
         resp = requests.post(
             f"{BASE_URL}/exchange/v1/derivatives/futures/positions",
             headers=headers,

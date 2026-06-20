@@ -35,6 +35,24 @@ def get_futures_specs():
     return []
 
 
+def get_futures_instrument_details(pair: str):
+    """
+    Fetches futures-specific details for a pair (like quantity_increment).
+    This is more accurate for B- and KC- pairs than markets_details.
+    """
+    url = f"https://api.coindcx.com/exchange/v1/derivatives/futures/data/instrument?pair={pair}"
+    try:
+        resp = requests.get(url)
+        if resp.status_code == 200:
+            data = resp.json()
+            # The API returns { "instrument": { ... } }
+            return data.get("instrument") if isinstance(data, dict) else None
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching instrument details for {pair}: {e}")
+        return None
+
+
 # ── Candles (core) ─────────────────────────────────────
 def _fetch_candles(symbol: str, interval: str, limit: int) -> list:
     to_ts = int(time.time())
