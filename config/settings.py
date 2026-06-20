@@ -10,12 +10,11 @@ TRADE_THRESHOLD_INR = 500.0  # Amount in INR to allocate per trade
 
 # ── Timeframes ─────────────────────────────────────────
 # Primary timeframe for signal detection
-CANDLE_INTERVAL = "60"      # '1', '5', '15', '60', '240', '1D'
-CANDLE_LIMIT    = 500        # increased for BOS/CHOCH and Impulse warmup
+CANDLE_INTERVAL = "15"      # '1', '5', '15', '60', '240', '1D'
+CANDLE_LIMIT    = 200        # reduced from 500 as we don't need huge warmup for EMAs
 
 # Confirmation timeframe (must be higher than CANDLE_INTERVAL)
-# 15m → 60, 60 → 240, 240 → 1D
-CONFIRM_INTERVAL = "240"    # 4H confirmation for 1H signals
+CONFIRM_INTERVAL = "60"    # 1H confirmation for 15m signals
 
 # ── EMA Settings ───────────────────────────────────────
 EMA_FAST   = 9
@@ -27,38 +26,25 @@ MACD_FAST   = 12
 MACD_SLOW   = 26
 MACD_SIGNAL = 9
 
-# ── RSI Settings ───────────────────────────────────────
-RSI_PERIOD     = 14
-RSI_LONG_MIN   = 50
-RSI_LONG_MAX   = 70          # avoid overbought longs
-RSI_SHORT_MIN  = 30          # avoid oversold shorts
-RSI_SHORT_MAX  = 50
+# ── ADX Settings ───────────────────────────────────────
+ADX_PERIOD = 14
+ADX_MIN_THRESHOLD = 20
+
+# RSI removed to keep system simple
 
 # ── Volume Settings ────────────────────────────────────
 VOLUME_MA_PERIOD = 20        # average volume lookback
 VOLUME_MULTIPLIER = 1.2      # volume must be 1.2x above average
 
-# ── ATR Settings ───────────────────────────────────────
 ATR_PERIOD            = 14
-ATR_MULTIPLIER_TARGET = 3.0  # 1:3 RR (Used as fallback if TARGET_PROFIT_PERCENT is 0)
-ATR_MULTIPLIER_SL     = 1.0
+ATR_MULTIPLIER_TARGET = 3.0  # fallback
+ATR_MULTIPLIER_SL     = 1.2
 TARGET_PROFIT_PERCENT = 0.05 # 5% profit on investment (margin) excluding leverage
 
 # ── Signal Scoring ─────────────────────────────────────
 MIN_SCORE = 3                # minimum score out of 5 to send alert (3+ for quality signals)
 
-# ── Impulse Engine Settings ──────────────────────────────
-IMPULSE_TREND_LEN = 19
-IMPULSE_LOOKBACK  = 5
-IMPULSE_DECAY     = 0.99
-IMPULSE_MAD_LEN   = 20
-IMPULSE_BAND_MIN  = 1.5
-IMPULSE_BAND_MAX  = 1.9
-
-# ── BOS/CHOCH Settings ──────────────────────────────────
-PIVOT_LOOKBACKS   = [1, 2, 3, 5, 11, 15, 20]
-MAX_ACTIVE_ZONES  = 50
-REQUIRE_INDUCEMENT = False
+# Impulse and BOS/CHOCH settings removed
 
 # ── Symbol Filter ──────────────────────────────────────
 WATCHLIST       = []

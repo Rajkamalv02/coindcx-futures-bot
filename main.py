@@ -51,6 +51,14 @@ def check_order_statuses():
     # ──────────────────────────────────────────────────────
     # PHASE 1 – Pending Orders  (placed / open / initial)
     # ──────────────────────────────────────────────────────
+    # Build normalised set of live position symbols from CoinDCX
+    live_positions  = get_open_positions()
+    live_norm_syms  = set()
+    for pos in live_positions:
+        raw = pos.get("pair") or pos.get("symbol") or ""
+        if raw:
+            live_norm_syms.add(_norm_sym(raw))
+
     open_orders = get_open_orders()
     trade_logger.info(f"[Phase 1] {len(open_orders)} pending order(s) in DB")
 
@@ -109,14 +117,6 @@ def check_order_statuses():
     if not active_trades:
         trade_logger.info("=== check_order_statuses() END ===")
         return
-
-    # Build normalised set of live position symbols from CoinDCX
-    live_positions  = get_open_positions()
-    live_norm_syms  = set()
-    for pos in live_positions:
-        raw = pos.get("pair") or pos.get("symbol") or ""
-        if raw:
-            live_norm_syms.add(_norm_sym(raw))
 
     trade_logger.info(
         f"  Live positions on exchange: {live_norm_syms or 'NONE'}"
