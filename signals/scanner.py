@@ -9,11 +9,8 @@ from config.settings import (
 from utils.logger import logger
 
 # How many recent candles to look back for a crossover event.
-# Was: only the current candle (too narrow — 62/65 symbols showed cross=None).
-# Now: last N candles. If a cross happened recently and price/ADX/HTF are
-# still aligned NOW, the signal is still valid (catching the early part
-# of the move instead of missing it entirely).
-CROSSOVER_LOOKBACK = 3
+# On 1H candles, 2 candles = 2 hours — a reasonable window.
+CROSSOVER_LOOKBACK = 2
 
 
 def _to_inr(usdt_value: float) -> float:
@@ -47,7 +44,6 @@ def _detect_recent_crossover(df: pd.DataFrame, lookback: int = CROSSOVER_LOOKBAC
     cross_down = cross_down.iloc[1:]
 
     if cross_up.any():
-        # most recent True index
         last_up_idx = cross_up[cross_up].index[-1]
     else:
         last_up_idx = None
@@ -89,7 +85,7 @@ def detect_signal(df: pd.DataFrame, symbol: str, confirm_trend: str = 'neutral')
         logger.debug(f"{symbol}: SKIPPED — NaN in required indicator columns")
         return None
 
-    # 1. Crossover Logic — now checks last CROSSOVER_LOOKBACK candles
+    # 1. Crossover Logic — checks last CROSSOVER_LOOKBACK candles
     direction = _detect_recent_crossover(df)
 
     logger.debug(
@@ -114,16 +110,19 @@ def detect_signal(df: pd.DataFrame, symbol: str, confirm_trend: str = 'neutral')
         logger.debug(f"{symbol} {direction} rejected: ADX {adx_curr:.2f} below {ADX_MIN_THRESHOLD}")
         return None
 
-    # ── NEW: Overextension & RSI Safety Filters ────────
+    # ── Overextension & RSI Safety Filters ────────────
     rsi_curr   = float(curr.get('rsi', 50))
     ema9_curr  = float(curr.get(f'ema_{EMA_FAST}', 0))
     dist_pct   = abs(close_curr - ema9_curr) / ema9_curr * 100 if ema9_curr > 0 else 0
+
+    # Overextension threshold: 3% for 1H candles (wider than 15m's 2%)
+    OVEREXTENSION_PCT = 3.0
 
     if direction == "LONG":
         if rsi_curr > 75:
             logger.info(f"  ⚠️ {symbol} LONG rejected: Overbought (RSI {rsi_curr:.1f})")
             return None
-        if dist_pct > 2.0:
+        if dist_pct > OVEREXTENSION_PCT:
             logger.info(f"  ⚠️ {symbol} LONG rejected: Overextended ({dist_pct:.1f}% from EMA9)")
             return None
     
@@ -131,11 +130,11 @@ def detect_signal(df: pd.DataFrame, symbol: str, confirm_trend: str = 'neutral')
         if rsi_curr < 25:
             logger.info(f"  ⚠️ {symbol} SHORT rejected: Oversold (RSI {rsi_curr:.1f})")
             return None
-        if dist_pct > 2.0:
+        if dist_pct > OVEREXTENSION_PCT:
             logger.info(f"  ⚠️ {symbol} SHORT rejected: Overextended ({dist_pct:.1f}% from EMA9)")
             return None
 
-    # 3. HTF Confirmation Check
+    # 3. HTF Confirmation Check (4H alignment)
     if direction == "LONG" and confirm_trend != "bullish":
         logger.debug(f"{symbol} LONG rejected: HTF trend is '{confirm_trend}' (needs 'bullish')")
         return None
@@ -189,7 +188,7 @@ def detect_signal(df: pd.DataFrame, symbol: str, confirm_trend: str = 'neutral')
         "entry":         entry,
         "target":        target,
         "stop_loss":     sl,
-        "rsi":           0.0,
+        "rsi":           round(rsi_curr, 1),   # Q-3 FIX: actual RSI, was hardcoded 0.0
         "atr":           round(atr_val, 4),
         "atr_inr":       _to_inr(atr_val),
         "inr_rate":      USDT_INR_RATE,
@@ -218,6 +217,9 @@ def run_quick_backtest(df: pd.DataFrame, adx_threshold: int = ADX_MIN_THRESHOLD)
     """
     if len(df) < 50:
         return {"win_rate": 0, "total_trades": 0, "net_pnl": 0}
+
+    # IMP-12 FIX: Work on a copy to avoid mutating the caller's DataFrame
+    df = df.copy()
 
     # Signal generation (Vectorized)
     ema_f = df[f'ema_{EMA_FAST}']

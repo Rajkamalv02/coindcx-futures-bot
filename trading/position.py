@@ -5,29 +5,6 @@ from utils.logger import logger
 BASE_URL = "https://api.coindcx.com"
 
 
-# def get_open_positions() -> list:
-#     """
-#     Fetch all open futures positions.
-#     """
-#     try:
-#         body = {"timestamp": get_timestamp()}
-#         headers, json_body = get_futures_auth_headers(body)
-#         resp = requests.post(
-#             f"{BASE_URL}/exchange/v1/derivatives/futures/positions",
-#             headers=headers,
-#             data=json_body
-#         )
-#         if resp.status_code == 200:
-#             data = resp.json()
-#             # Log raw data for debugging symbol matching
-#             logger.info(f"DEBUG: Raw positions from API: {data}")
-#             return data
-#         logger.error(f"Failed to fetch positions: {resp.status_code} {resp.text}")
-#         return []
-#     except Exception as e:
-#         logger.error(f"Get positions error: {e}")
-#         return []
-
 def get_open_positions() -> list | None:
     """Returns None on failure so callers can tell that apart from a genuinely empty list."""
     try:
@@ -55,10 +32,11 @@ def get_futures_balance() -> float:
     Handles both USDT and INR futures wallets.
     INR balance is converted to USDT equivalent using the configured rate.
     """
-    import requests as _requests
     import json as _json
     from utils.logger import api_logger
     from config.settings import USDT_INR_RATE
+    # IMP-5 FIX: Use APISession instead of raw requests to ensure logging
+    from utils.api_helper import APISession as api_requests
 
     api_logger.info(">>> Fetching Futures Wallet Balance...")
     try:
@@ -66,7 +44,7 @@ def get_futures_balance() -> float:
         headers, json_body = get_futures_auth_headers(body)
 
         # Correct endpoint — uses GET, not POST
-        resp = _requests.get(
+        resp = api_requests.get(
             f"{BASE_URL}/exchange/v1/derivatives/futures/wallets",
             headers=headers,
             data=json_body

@@ -51,7 +51,7 @@ def calculate_indicators(df: pd.DataFrame, symbol: str = "default") -> pd.DataFr
     # Volume MA
     df['volume_ma'] = df['volume'].rolling(window=VOLUME_MA_PERIOD).mean()
 
-    # RSI (Re-added for overbought/oversold filtering)
+    # RSI (used for overbought/oversold filtering in scanner)
     df['rsi'] = ta.rsi(df['close'], length=14)
 
     return df
@@ -59,9 +59,9 @@ def calculate_indicators(df: pd.DataFrame, symbol: str = "default") -> pd.DataFr
 
 def get_confirm_trend(df_confirm: pd.DataFrame, symbol: str = "default") -> str:
     """
-    Stricter alignment for HTF confirmation:
-    Bullish: 9 > 21 > 50
-    Bearish: 9 < 21 < 50
+    Strict HTF confirmation using full EMA stack alignment:
+    Bullish: EMA9 > EMA21 > EMA50
+    Bearish: EMA9 < EMA21 < EMA50
     """
     if df_confirm.empty or len(df_confirm) < EMA_TREND + 2:
         return 'neutral'
@@ -76,8 +76,9 @@ def get_confirm_trend(df_confirm: pd.DataFrame, symbol: str = "default") -> str:
     if any(pd.isna(v) for v in [ema_fast, ema_slow, ema_trend]):
         return 'neutral'
 
-    if ema_fast > ema_slow:
+    # BUG-7 FIX: Full stack alignment — was only checking fast vs slow
+    if ema_fast > ema_slow > ema_trend:
         return 'bullish'
-    elif ema_fast < ema_slow:
+    elif ema_fast < ema_slow < ema_trend:
         return 'bearish'
     return 'neutral'

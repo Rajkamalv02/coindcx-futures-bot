@@ -252,6 +252,32 @@ def get_symbol_trades(symbol: str, days_back: int = 1) -> list:
         return []
 
 
+def get_all_open_orders() -> list:
+    """
+    Fetch all currently open orders from the exchange.
+    Used for stateless deduplication.
+    """
+    try:
+        path = "/exchange/v1/derivatives/futures/orders"
+        body = {
+            "timestamp": get_timestamp(),
+            "status": "open",
+            "page": 1,
+            "size": 50,
+            "margin_currency_short_name": ["INR", "USDT"]
+        }
+        headers, json_body = get_futures_auth_headers(body)
+        resp = requests.post(f"{BASE_URL}{path}", headers=headers, data=json_body)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("orders", []) if isinstance(data, dict) else data
+        return []
+    except Exception as e:
+        logger.error(f"Error fetching all open orders: {e}")
+        return []
+
+
 def get_order_status(order_id: str) -> dict:
     """
     Futures tracking: We must use the List Orders endpoint and filter by ID 
