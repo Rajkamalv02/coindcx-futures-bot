@@ -26,16 +26,16 @@ MACD_SIGNAL = 9
 
 # ── ADX Settings ───────────────────────────────────────
 ADX_PERIOD = 14
-ADX_MIN_THRESHOLD = 15
+ADX_MIN_THRESHOLD = 20       # Increased from 15 to 20 for stricter trend filter
 
 # ── Volume Settings ────────────────────────────────────
 VOLUME_MA_PERIOD = 20        # average volume lookback
 VOLUME_MULTIPLIER = 1.2      # volume must be 1.2x above average
 
 ATR_PERIOD            = 14
-ATR_MULTIPLIER_TARGET = 3.0  # fallback
-ATR_MULTIPLIER_SL     = 1.2
-TARGET_PROFIT_PERCENT = 0.05 # 5% profit on investment (margin) excluding leverage
+ATR_MULTIPLIER_TARGET = 2.0  # 2.0x ATR for Take Profit
+ATR_MULTIPLIER_SL     = 1.0  # 1.0x ATR for Stop Loss
+# FIXED_TARGET removed in favor of ATR-based targets
 
 # ── Signal Scoring ─────────────────────────────────────
 MIN_SCORE = 3                # minimum score out of 6 to send alert (3+ for quality signals)

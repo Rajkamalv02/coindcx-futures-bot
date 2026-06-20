@@ -8,20 +8,52 @@ BASE_URL = "https://api.coindcx.com"
 def get_open_positions() -> list | None:
     """Returns None on failure so callers can tell that apart from a genuinely empty list."""
     try:
-        body = {"timestamp": get_timestamp()}
+        # According to official API docs:
+        # page, size are MANDATORY strings.
+        # margin_currency_short_name is an OPTIONAL array of strings.
+        body = {
+            "timestamp": get_timestamp(),
+            "page": "1",
+            "size": "50",
+            "margin_currency_short_name": ["USDT", "INR"]
+        }
         headers, json_body = get_futures_auth_headers(body)
         resp = requests.post(
             f"{BASE_URL}/exchange/v1/derivatives/futures/positions",
-            headers=headers, data=json_body
+            headers=headers, data=json_body, timeout=10
         )
+        
         if resp.status_code == 200:
             data = resp.json()
-            logger.info(f"DEBUG: Raw positions from API: {data}")
-            return data
-        logger.error(f"Failed to fetch positions: {resp.status_code} {resp.text}")
-        return None
+            logger.debug(f"RAW POSITIONS RESPONSE: {data}")
+            
+            # Filter out "ghost" positions with 0.0 balance
+            # CoinDCX API returns positions for all pairs ever touched; we want active only.
+            active_only = [
+                p for p in data 
+                if abs(float(p.get("active_pos", 0) or 0)) > 1e-8
+            ]
+            return active_only
+        else:
+            # Fallback: some older API keys might not like the array or multiple currencies
+            logger.warning(f"Combined positions fetch failed ({resp.status_code}). Trying individual calls...")
+            combined = []
+            for curr in ["USDT", "INR"]:
+                body["margin_currency_short_name"] = [curr]
+                headers, json_body = get_futures_auth_headers(body)
+                r = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/positions",
+                                   headers=headers, data=json_body, timeout=10)
+                if r.status_code == 200:
+                    combined.extend(r.json())
+            
+            if combined:
+                return [p for p in combined if abs(float(p.get("active_pos", 0) or 0)) > 1e-8]
+                
+            logger.error(f"Failed to fetch positions: {resp.status_code} | {resp.text}")
+            return None if resp.status_code != 200 else []
+
     except Exception as e:
-        logger.error(f"Get positions error: {e}")
+        logger.error(f"get_open_positions error: {e}")
         return None
 
         
@@ -35,7 +67,6 @@ def get_futures_balance() -> float:
     import json as _json
     from utils.logger import api_logger
     from config.settings import USDT_INR_RATE
-    # IMP-5 FIX: Use APISession instead of raw requests to ensure logging
     from utils.api_helper import APISession as api_requests
 
     api_logger.info(">>> Fetching Futures Wallet Balance...")
@@ -49,38 +80,22 @@ def get_futures_balance() -> float:
             headers=headers,
             data=json_body
         )
-        api_logger.info(f"Wallet balance status: {resp.status_code}")
 
         if resp.status_code == 200:
-            wallets = resp.json()  # returns a list of wallet objects
-            # Log full response so we can see what currencies are available
-            api_logger.info(f"Wallets response: {_json.dumps(wallets, indent=2)}")
-
+            wallets = resp.json()
             # Try USDT wallet first
             for wallet in wallets:
                 name = wallet.get("currency_short_name", "").upper()
                 if name == "USDT":
-                    bal = float(wallet.get("balance", 0))
-                    api_logger.info(f"USDT Futures Wallet Balance: {bal}")
-                    return bal
+                    return float(wallet.get("balance", 0))
 
-            # Fallback: INR wallet → convert to USDT equivalent
+            # Fallback: INR wallet
             for wallet in wallets:
                 name = wallet.get("currency_short_name", "").upper()
                 if name == "INR":
                     inr_bal = float(wallet.get("balance", 0))
-                    usdt_equiv = round(inr_bal / USDT_INR_RATE, 4)
-                    api_logger.info(
-                        f"INR Futures Wallet Balance: {inr_bal} INR "
-                        f"= {usdt_equiv} USDT (rate: {USDT_INR_RATE})"
-                    )
-                    return usdt_equiv
+                    return round(inr_bal / USDT_INR_RATE, 4)
 
-            # Last resort: log available wallet names for debugging
-            names = [w.get("currency_short_name", "?") for w in wallets]
-            api_logger.warning(
-                f"No USDT/INR wallet found. Available wallets: {names}"
-            )
             return 0.0
 
         api_logger.error(f"Failed to fetch wallets: {resp.status_code} {resp.text}")

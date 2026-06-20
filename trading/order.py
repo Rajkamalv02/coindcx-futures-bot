@@ -11,109 +11,93 @@ from api.fetcher import get_futures_specs, get_futures_instrument_details
 load_dotenv()
 
 BASE_URL = "https://api.coindcx.com"
+DEFAULT_TIMEOUT = 10
 
-# Cache for instrument specs
-_INSTRUMENT_SPECS = {}
-_FUTURES_INSTRUMENT_CACHE = {}
+# ── Metadata Cache ─────────────────────────────────────
+_MARKETS_DETAILS_CACHE = {}
+_FUTURES_SPECS_CACHE = {} # pair -> specs
 
-def _load_specs():
-    """Fetches and caches instrument specifications from Markets Details."""
-    global _INSTRUMENT_SPECS
-    if not _INSTRUMENT_SPECS:
-        specs = get_futures_specs()
-        for s in specs:
+def _get_specs(symbol: str):
+    """
+    Retrieves precision and step size for a symbol.
+    Caches results to avoid redundant API calls.
+    """
+    global _MARKETS_DETAILS_CACHE, _FUTURES_SPECS_CACHE
+
+    if symbol in _FUTURES_SPECS_CACHE:
+        return _FUTURES_SPECS_CACHE[symbol]
+
+    # 1. Load bulk metadata if not already loaded
+    if not _MARKETS_DETAILS_CACHE:
+        logger.info("📡 Loading bulk markets_details...")
+        raw_specs = get_futures_specs()
+        for s in raw_specs:
             name = s.get("coindcx_name")
             if name:
-                _INSTRUMENT_SPECS[name] = s
-    return _INSTRUMENT_SPECS
+                _MARKETS_DETAILS_CACHE[name] = s
 
-def _get_accurate_specs(symbol: str):
-    """
-    Returns the most accurate specs for a symbol, prioritizing the 
-    futures-specific details from the exchange.
-    """
-    global _FUTURES_INSTRUMENT_CACHE
-    
-    # 1. Check if we already have it in futures cache
-    if symbol in _FUTURES_INSTRUMENT_CACHE:
-        return _FUTURES_INSTRUMENT_CACHE[symbol]
-    
-    # 2. Try fetching from futures instrument endpoint
+    # 2. Try fetching futures-specific instrument details (most accurate for B- pairs)
+    # We only do this on-demand when a signal is found to keep startup fast.
     f_specs = get_futures_instrument_details(symbol)
-    if f_specs:
-        # Standardize field names to be consistent with markets_details
-        processed = {
-            "step": f_specs.get("quantity_increment"),
-            "min_quantity": f_specs.get("min_quantity") or f_specs.get("min_trade_size"),
-            "min_notional": f_specs.get("min_notional"),
-            "target_currency_precision": len(str(f_specs.get("quantity_increment")).split(".")[-1]) if "." in str(f_specs.get("quantity_increment")) else 0,
-            "base_currency_precision": len(str(f_specs.get("price_increment")).split(".")[-1]) if "." in str(f_specs.get("price_increment")) else 0,
-            "lot_size": f_specs.get("quantity_increment"),
-            "is_futures": True,
-            "raw": f_specs
-        }
-        _FUTURES_INSTRUMENT_CACHE[symbol] = processed
-        return processed
     
+    if f_specs:
+        # Standardize field names
+        quantity_increment = float(f_specs.get("quantity_increment", 0.0001))
+        price_increment    = float(f_specs.get("price_increment", 0.0001))
+        
+        specs = {
+            "step":          quantity_increment,
+            "price_step":    price_increment,
+            "qty_prec":      len(str(quantity_increment).split(".")[-1]) if "." in str(quantity_increment) else 0,
+            "price_prec":    len(str(price_increment).split(".")[-1]) if "." in str(price_increment) else 0,
+            "min_quantity":  float(f_specs.get("min_quantity") or f_specs.get("min_trade_size") or 0),
+            "min_notional":  float(f_specs.get("min_notional", 0)),
+        }
+        _FUTURES_SPECS_CACHE[symbol] = specs
+        return specs
+
     # 3. Fallback to markets_details
-    specs = _load_specs()
     clean_sym = symbol.replace("B-", "").replace("_", "")
-    return specs.get(clean_sym)
+    m_specs = _MARKETS_DETAILS_CACHE.get(clean_sym)
+    if m_specs:
+        q_prec = m_specs.get("target_currency_precision", 2)
+        p_prec = m_specs.get("base_currency_precision", 2)
+        specs = {
+            "step":          1 / (10**q_prec),
+            "price_step":    1 / (10**p_prec),
+            "qty_prec":      q_prec,
+            "price_prec":    p_prec,
+            "min_quantity":  0.0, # Not reliably in markets_details
+            "min_notional":  0.0,
+        }
+        _FUTURES_SPECS_CACHE[symbol] = specs
+        return specs
 
-
-def _clean_symbol(symbol: str) -> str:
-    """Normalizes B-BTC_USDT -> BTCUSDT for Market Details matching."""
-    return symbol.replace("B-", "").replace("_", "")
-
-
-def _round_to_step(value: float | None, precision: int) -> float | None:
-    """Rounds a value to a fixed number of decimals."""
-    if value is None: return None
-    return round(float(value), precision)
+    return None
 
 
 def calculate_quantity(symbol: str, entry_price: float, trade_amount_usdt: float, leverage: int = DEFAULT_LEVERAGE) -> float:
-    """Calculates quantity rounded down to the allowed precision."""
-    pair_specs = _get_accurate_specs(symbol)
+    """Calculates quantity rounded down to the allowed step size."""
+    specs = _get_specs(symbol)
     
-    precision = 2 # Default fallback
-    if pair_specs:
-        precision = pair_specs.get("target_currency_precision", 2)
+    if not specs:
+        # Blind fallback
+        raw_qty = (trade_amount_usdt * leverage) / entry_price
+        return float(round(math.floor(raw_qty * 100) / 100, 8))
 
     notional = trade_amount_usdt * leverage
     raw_qty  = notional / entry_price
     
-    # 3. Round down to nearest step or precision
-    step = 0.0
-    if pair_specs:
-        # Check various common field names for step size
-        step = float(
-            pair_specs.get("step") or 
-            pair_specs.get("min_quantity_step") or 
-            pair_specs.get("lot_size") or 
-            0
-        )
-        
-        # If still no step, derive it from target_currency_precision
-        if step == 0 and precision >= 0:
-            step = 1 / (10**int(precision))
-
-    # DEBUG: See what the bot is using
-    logger.debug(f"Quantity Specs for {symbol}: Precision={precision}, Step={step}, RawQty={raw_qty}")
-
-    if step > 0:
-        # Round down to nearest multiple of step
-        # Using a small epsilon to avoid floating point issues (e.g. 0.2999999999)
-        quantity = math.floor((raw_qty + 1e-9) / step) * step
-    else:
-        # Final fallback
-        factor = 10**int(precision)
-        quantity = math.floor(raw_qty * factor) / factor
-        
-    # FINAL SAFETY: If the API says "should be divisible by 0.1", 
-    # we ensure our final quantity is aligned to at least 1 decimal if step is missing or too small
-    if step < 0.1 and "divisible by 0.1" in str(pair_specs): # Not likely to be in specs but as a placeholder
-        quantity = math.floor(quantity * 10) / 10
+    step = specs['step']
+    
+    # Round down to nearest multiple of step
+    # Epsilon (1e-9) prevents float precision errors (e.g., 0.2999999 becoming 0.2)
+    quantity = math.floor((raw_qty + 1e-9) / step) * step
+    
+    # Final safety check for min_quantity
+    if quantity < specs['min_quantity']:
+        logger.warning(f"⚠️ {symbol} quantity {quantity} below minimum {specs['min_quantity']}")
+        return 0.0
 
     return float(round(quantity, 8))
 
@@ -124,32 +108,23 @@ def place_limit_order(symbol: str, direction: str,
                       sl_price: float | None = None,
                       amount_usdt: float = TRADE_AMOUNT_USDT,
                       leverage: int = DEFAULT_LEVERAGE) -> dict:
-    """
-    Place a limit order with correct quantity and price precision.
-    """
-    pair_specs = _get_accurate_specs(symbol)
     
-    # 1. Get Precisions
-    price_prec = 2
-    qty_prec   = 2
-    if pair_specs:
-        price_prec = pair_specs.get("base_currency_precision", 2)
-        qty_prec   = pair_specs.get("target_currency_precision", 2)
+    specs = _get_specs(symbol)
     
-    final_entry = _round_to_step(entry_price, price_prec)
-    final_tp    = _round_to_step(tp_price, price_prec)
-    final_sl    = _round_to_step(sl_price, price_prec)
+    # 1. Price Rounding
+    p_prec = specs['price_prec'] if specs else 2
     
-    if final_entry is None:
-        return {"success": False, "error": "Invalid entry price"}
+    final_entry = round(float(entry_price), p_prec)
+    final_tp    = round(float(tp_price), p_prec) if tp_price else None
+    final_sl    = round(float(sl_price), p_prec) if sl_price else None
 
-    # 2. Calculate Quantity
+    # 2. Quantity calculation
     quantity = calculate_quantity(symbol, final_entry, amount_usdt, leverage)
-    side     = "buy" if direction == "LONG" else "sell"
     
     if quantity <= 0:
-        logger.warning(f"Quantity 0 calculated for {symbol}")
-        return {"success": False, "error": "Zero quantity"}
+        return {"success": False, "error": "Zero quantity after precision rounding"}
+
+    side = "buy" if direction == "LONG" else "sell"
 
     order_params = {
         "pair":       symbol,
@@ -161,10 +136,8 @@ def place_limit_order(symbol: str, direction: str,
         "margin_currency_short_name": "INR",
     }
     
-    if final_tp is not None:
-        order_params["take_profit_price"] = final_tp
-    if final_sl is not None:
-        order_params["stop_loss_price"] = final_sl
+    if final_tp: order_params["take_profit_price"] = final_tp
+    if final_sl: order_params["stop_loss_price"] = final_sl
 
     trade_body = {
         "timestamp":  get_timestamp(),
@@ -172,179 +145,203 @@ def place_limit_order(symbol: str, direction: str,
     }
 
     if PAPER_TRADING:
-        import json as _json
-        logger.info(f"📝 PAPER TRADING: Simulated order for {symbol} {direction} @ {final_entry}")
-        logger.info(f"📤 MOCK REQUEST BODY: {_json.dumps(trade_body, indent=2)}")
         return {
             "success":      True,
             "order_id":     "paper_trading_id",
-            "order_status": "filled",
             "quantity":     quantity,
-            "leverage":     leverage,
-            "trade_amount": amount_usdt,
             "paper":        True
         }
 
     try:
+        # Check balance before committing
         balance = get_futures_balance()
         if balance < (amount_usdt - 0.1):
-            logger.warning(f"❌ Insufficient Funds for {symbol}")
-            return {"success": False, "error": "Insufficient funds"}
-
-        # Leverage update (optional, usually set once)
-        # Note: can be noisy with 404s, skipping for now to focus on order success
+            return {"success": False, "error": "Insufficient wallet balance"}
 
         headers, json_body = get_futures_auth_headers(trade_body)
         resp = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/orders/create",
-                               headers=headers, data=json_body)
+                               headers=headers, data=json_body, timeout=DEFAULT_TIMEOUT)
 
         if resp.status_code == 200:
-            order_data = resp.json()
-            # COINDCX RETURNS A LIST [ {order...} ]
-            if isinstance(order_data, list) and len(order_data) > 0:
-                order = order_data[0]
-            else:
-                order = order_data
-            
-            order_id = order.get("id") or order.get("order_id")
-            logger.info(f"Order placed: {symbol} {direction} qty:{quantity} @ {final_entry} id:{order_id}")
-            return {
-                "success":      True,
-                "order_id":     order_id,
-                "order_status": order.get("status", "open"),
-                "quantity":     quantity,
-                "leverage":     leverage,
-                "trade_amount": amount_usdt,
-            }
-
-        logger.error(f"Order failed for {symbol}: {resp.status_code} | Details: {resp.text}")
-        return {"success": False, "error": resp.text}
-
+            res_data = resp.json()
+            # Handle list return vs dict return
+            order_info = res_data[0] if isinstance(res_data, list) else res_data
+            if order_info.get("status") in ("placed", "open", "filled"):
+                return {
+                    "success":      True,
+                    "order_id":     order_info.get("id") or order_info.get("order_id"),
+                    "order_status": order_info.get("status"),
+                    "quantity":     quantity,
+                    "leverage":     leverage,
+                }
+            return {"success": False, "error": order_info.get("message", "API accepted but no order ID returned")}
+        
+        err_msg = resp.text
+        try:
+            err_json = resp.json()
+            if isinstance(err_json, list): err_json = err_json[0]
+            err_msg = err_json.get("message") or err_json.get("error") or err_msg
+        except: pass
+        
+        return {"success": False, "error": f"API Error {resp.status_code}: {err_msg}"}
+        
     except Exception as e:
-        logger.error(f"Place order exception for {symbol}: {e}")
+        logger.error(f"place_limit_order critical error for {symbol}: {e}")
         return {"success": False, "error": str(e)}
-
-
-def get_symbol_trades(symbol: str, days_back: int = 1) -> list:
-    """
-    Fetch all recent trades for a symbol to find exit events.
-    """
-    try:
-        from datetime import datetime, timedelta
-        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        end_date   = datetime.now().strftime("%Y-%m-%d")
-        
-        body = {
-            "timestamp": get_timestamp(),
-            "pair":      symbol,
-            "from_date": start_date,
-            "to_date":   end_date
-        }
-        headers, json_body = get_futures_auth_headers(body)
-        resp = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/trades",
-                               headers=headers, data=json_body)
-        
-        if resp.status_code == 200:
-            return resp.json()
-        return []
-    except Exception as e:
-        logger.error(f"Error fetching symbol trades for {symbol}: {e}")
-        return []
 
 
 def get_all_open_orders() -> list:
     """
-    Fetch all currently open orders from the exchange.
-    Used for stateless deduplication.
+    Fetch all open orders for both BUY/SELL and USDT/INR markets.
+    Official Docs specify:
+    - page, size, status, side are MANDATORY strings.
+    - margin_currency_short_name is an OPTIONAL array (defaults to ["USDT"]).
     """
     try:
-        path = "/exchange/v1/derivatives/futures/orders"
-        body = {
-            "timestamp": get_timestamp(),
-            "status": "open",
-            "page": 1,
-            "size": 50,
-            "margin_currency_short_name": ["INR", "USDT"]
-        }
-        headers, json_body = get_futures_auth_headers(body)
-        resp = requests.post(f"{BASE_URL}{path}", headers=headers, data=json_body)
+        combined_orders = []
+        # 'side' is mandatory ("buy" or "sell")
+        for side in ["buy", "sell"]:
+            body = {
+                "timestamp": get_timestamp(),
+                "status": "open",
+                "side": side,
+                "page": "1",
+                "size": "50",
+                "margin_currency_short_name": ["USDT", "INR"]
+            }
+            headers, json_body = get_futures_auth_headers(body)
+            resp = requests.post(
+                f"{BASE_URL}/exchange/v1/derivatives/futures/orders", 
+                headers=headers, data=json_body, timeout=10
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                logger.debug(f"RAW ORDERS RESPONSE ({side}): {data}")
+                orders = data.get("orders", []) if isinstance(data, dict) else data
+                if isinstance(orders, list):
+                    combined_orders.extend(orders)
+            else:
+                logger.error(f"Failed to fetch {side} orders: {resp.status_code} | {resp.text}")
         
-        if resp.status_code == 200:
-            data = resp.json()
-            return data.get("orders", []) if isinstance(data, dict) else data
-        return []
+        return combined_orders
     except Exception as e:
-        logger.error(f"Error fetching all open orders: {e}")
+        logger.error(f"get_all_open_orders error: {e}")
         return []
 
 
 def get_order_status(order_id: str) -> dict:
-    """
-    Futures tracking: We must use the List Orders endpoint and filter by ID 
-    because there's no reliable single-status endpoint for futures.
-    """
-    try:
-        path = "/exchange/v1/derivatives/futures/orders"
-        # We check both open and filled/cancelled to be sure
-        statuses = ["open", "filled", "cancelled", "rejected"]
-        
-        for status_to_check in statuses:
-            body = {
-                "timestamp": get_timestamp(),
-                "status": status_to_check,
-                "page": 1,
-                "size": 50,
-                "margin_currency_short_name": ["INR", "USDT"]
-            }
-            headers, json_body = get_futures_auth_headers(body)
-            resp = requests.post(f"{BASE_URL}{path}", headers=headers, data=json_body)
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                orders = data.get("orders", []) if isinstance(data, dict) else data
-                
-                # Search for our order ID in the list
-                for o in orders:
-                    this_id = o.get("id") or o.get("order_id")
-                    if str(this_id) == str(order_id):
-                        return {"order_id": order_id, "status": o.get("status"), "data": o}
-            else:
-                logger.debug(f"List {status_to_check} failed: {resp.status_code}")
-
-        return {"order_id": order_id, "status": "not_found"}
-    except Exception as e:
-        logger.error(f"Order status error: {e}")
-        return {"order_id": order_id, "status": "error"}
-
-
-def get_trade_details(symbol: str, order_id: str) -> dict:
-    """
-    Fetch execution details (fill price, fees) for a specific order.
-    Uses POST /exchange/v1/derivatives/futures/trades
-    """
+    """Uses the List Orders endpoint to find a specific order by ID."""
     try:
         body = {
             "timestamp": get_timestamp(),
-            "pair":      symbol,
-            "order_id":  order_id
+            "status": "open", # First check open orders
+            "page": 1,
+            "size": 20
         }
         headers, json_body = get_futures_auth_headers(body)
-        resp = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/trades",
-                               headers=headers, data=json_body)
+        resp = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/orders", 
+                               headers=headers, data=json_body, timeout=DEFAULT_TIMEOUT)
         
         if resp.status_code == 200:
-            trades = resp.json()
-            if isinstance(trades, list) and len(trades) > 0:
-                total_fees = sum(float(t.get("fee_amount", 0)) for t in trades)
-                avg_price = trades[0].get("price")
-                return {
-                    "success":    True,
-                    "fill_price": float(avg_price),
-                    "fees":       total_fees,
-                    "symbol":     trades[0].get("pair")
-                }
+            orders = resp.json().get("orders", [])
+            for o in orders:
+                if o.get("id") == order_id:
+                    return {"status": o.get("status"), "data": o}
+            
+            # If not in open, check filled/closed
+            body["status"] = "filled"
+            headers, json_body = get_futures_auth_headers(body)
+            resp = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/orders", 
+                                   headers=headers, data=json_body, timeout=DEFAULT_TIMEOUT)
+            if resp.status_code == 200:
+                orders = resp.json().get("orders", [])
+                for o in orders:
+                    if o.get("id") == order_id:
+                        return {"status": o.get("status"), "data": o}
         
-        return {"success": False, "error": f"API Error: {resp.status_code}"}
+        return {"status": "unknown", "message": "Order not found in recent lists"}
     except Exception as e:
-        logger.error(f"Get trade details error for {order_id}: {e}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"get_order_status error for {order_id}: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+def get_trade_details(symbol: str, order_id: str) -> dict:
+    """Fetches specific execution details for an order."""
+    try:
+        body = {"timestamp": get_timestamp(), "order_id": order_id}
+        headers, json_body = get_futures_auth_headers(body)
+        resp = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/orders/trades/details",
+                               headers=headers, data=json_body, timeout=DEFAULT_TIMEOUT)
+        if resp.status_code == 200:
+            data = resp.json()
+            t = data[0] if isinstance(data, list) else data
+            return {
+                "success":    True,
+                "fill_price": float(t.get("price", 0)),
+                "fees":       float(t.get("fee_amount", 0)),
+                "raw":        t
+            }
+        return {"success": False}
+    except Exception as e:
+        logger.error(f"get_trade_details error: {e}")
+        return {"success": False}
+
+
+def get_symbol_trades(symbol: str, limit: int = 5) -> list:
+    """Fetches recent trade history for a specific symbol."""
+    try:
+        body = {"timestamp": get_timestamp(), "pair": symbol, "page": 1, "size": limit}
+        headers, json_body = get_futures_auth_headers(body)
+        resp = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/orders/trades",
+                               headers=headers, data=json_body, timeout=DEFAULT_TIMEOUT)
+        if resp.status_code == 200:
+            return resp.json()
+        return []
+    except Exception as e:
+        logger.error(f"get_symbol_trades error: {e}")
+        return []
+
+def cancel_order(order_id: str) -> bool:
+    """Cancels an open order."""
+    try:
+        body = {"timestamp": get_timestamp(), "id": order_id}
+        headers, json_body = get_futures_auth_headers(body)
+        resp = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/orders/cancel",
+                               headers=headers, data=json_body, timeout=DEFAULT_TIMEOUT)
+        return resp.status_code == 200
+    except Exception as e:
+        logger.error(f"cancel_order error for {order_id}: {e}")
+        return False
+
+def place_sl_order(symbol: str, pos_side: str, price: float, quantity: float):
+    """Places a Stop Loss order for an existing position."""
+    # Use local function directly
+    specs = _get_specs(symbol)
+    p_prec = specs['price_prec'] if specs else 2
+    final_price = round(float(price), p_prec)
+    
+    # SL side is opposite of position side
+    side = "sell" if pos_side == "LONG" else "buy"
+    
+    trade_body = {
+        "timestamp": get_timestamp(),
+        "order": {
+            "pair": symbol,
+            "side": side,
+            "order_type": "stop_limit_order", # Or "stop_market_order" if supported
+            "stop_price": final_price,
+            "price": final_price,
+            "total_quantity": quantity,
+            "leverage": 1, # leverage doesn't matter for closing orders usually but required
+            "margin_currency_short_name": "INR"
+        }
+    }
+    try:
+        headers, json_body = get_futures_auth_headers(trade_body)
+        resp = requests.post(f"{BASE_URL}/exchange/v1/derivatives/futures/orders/create",
+                               headers=headers, data=json_body, timeout=DEFAULT_TIMEOUT)
+        return resp.status_code == 200
+    except Exception as e:
+        logger.error(f"place_sl_order error for {symbol}: {e}")
+        return False

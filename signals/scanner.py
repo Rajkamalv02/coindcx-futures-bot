@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from config.settings import (
     EMA_FAST, EMA_SLOW, EMA_TREND,
-    ADX_MIN_THRESHOLD, ATR_MULTIPLIER_SL, TARGET_PROFIT_PERCENT,
+    ADX_MIN_THRESHOLD, ATR_MULTIPLIER_SL, ATR_MULTIPLIER_TARGET,
     USDT_INR_RATE, CANDLE_INTERVAL, CONFIRM_INTERVAL,
     VOLUME_MULTIPLIER, DEFAULT_LEVERAGE, MIN_SCORE
 )
@@ -163,13 +163,12 @@ def detect_signal(df: pd.DataFrame, symbol: str, confirm_trend: str = 'neutral')
 
     score = min(score, 6)
 
-    # 5. Target and SL Calculation
+    # 5. Target and SL Calculation (ATR-based)
     entry = round(close_curr, 4)
     atr_val = float(curr.get('atr', 0)) or (curr['high'] - curr['low'])
 
-    sl_dist = atr_val * ATR_MULTIPLIER_SL
-    target_move_pct = TARGET_PROFIT_PERCENT / DEFAULT_LEVERAGE
-    target_dist = entry * target_move_pct
+    sl_dist     = atr_val * ATR_MULTIPLIER_SL
+    target_dist = atr_val * ATR_MULTIPLIER_TARGET
 
     if direction == "LONG":
         target = round(entry + target_dist, 4)
@@ -243,10 +242,9 @@ def run_quick_backtest(df: pd.DataFrame, adx_threshold: int = ADX_MIN_THRESHOLD)
         entry = row['close']
         atr   = row['atr'] if 'atr' in row and not pd.isna(row['atr']) else (row['high'] - row['low'])
         
-        # SL/TP
+        # SL/TP (ATR-based)
         sl_dist = atr * ATR_MULTIPLIER_SL
-        target_move_pct = TARGET_PROFIT_PERCENT / DEFAULT_LEVERAGE
-        tp_dist = entry * target_move_pct
+        tp_dist = atr * ATR_MULTIPLIER_TARGET
         
         if direction == "LONG":
             sl, tp = entry - sl_dist, entry + tp_dist
