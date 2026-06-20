@@ -5,27 +5,49 @@ from utils.logger import logger
 BASE_URL = "https://api.coindcx.com"
 
 
-def get_open_positions() -> list:
-    """
-    Fetch all open futures positions.
-    """
+# def get_open_positions() -> list:
+#     """
+#     Fetch all open futures positions.
+#     """
+#     try:
+#         body = {"timestamp": get_timestamp()}
+#         headers, json_body = get_futures_auth_headers(body)
+#         resp = requests.post(
+#             f"{BASE_URL}/exchange/v1/derivatives/futures/positions",
+#             headers=headers,
+#             data=json_body
+#         )
+#         if resp.status_code == 200:
+#             data = resp.json()
+#             # Log raw data for debugging symbol matching
+#             logger.info(f"DEBUG: Raw positions from API: {data}")
+#             return data
+#         logger.error(f"Failed to fetch positions: {resp.status_code} {resp.text}")
+#         return []
+#     except Exception as e:
+#         logger.error(f"Get positions error: {e}")
+#         return []
+
+def get_open_positions() -> list | None:
+    """Returns None on failure so callers can tell that apart from a genuinely empty list."""
     try:
         body = {"timestamp": get_timestamp()}
-        headers, json_body = get_auth_headers(body)
+        headers, json_body = get_futures_auth_headers(body)
         resp = requests.post(
             f"{BASE_URL}/exchange/v1/derivatives/futures/positions",
-            headers=headers,
-            data=json_body
+            headers=headers, data=json_body
         )
         if resp.status_code == 200:
-            return resp.json()
+            data = resp.json()
+            logger.info(f"DEBUG: Raw positions from API: {data}")
+            return data
         logger.error(f"Failed to fetch positions: {resp.status_code} {resp.text}")
-        return []
+        return None
     except Exception as e:
         logger.error(f"Get positions error: {e}")
-        return []
+        return None
 
-
+        
 def get_futures_balance() -> float:
     """
     Fetch available balance in futures wallet.

@@ -10,7 +10,8 @@ def log_api_call(method, url, headers, data=None, params=None, response=None):
         'leverage', 
         'accounts', 
         'balance', 
-        'position'
+        'position',
+        'trades'
     ]
     is_important = any(k in url.lower() for k in important_keywords)
     

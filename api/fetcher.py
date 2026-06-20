@@ -35,6 +35,24 @@ def get_futures_specs():
     return []
 
 
+def get_futures_instrument_details(pair: str):
+    """
+    Fetches futures-specific details for a pair (like quantity_increment).
+    This is more accurate for B- and KC- pairs than markets_details.
+    """
+    url = f"https://api.coindcx.com/exchange/v1/derivatives/futures/data/instrument?pair={pair}"
+    try:
+        resp = requests.get(url)
+        if resp.status_code == 200:
+            data = resp.json()
+            # The API returns { "instrument": { ... } }
+            return data.get("instrument") if isinstance(data, dict) else None
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching instrument details for {pair}: {e}")
+        return None
+
+
 # ── Candles (core) ─────────────────────────────────────
 def _fetch_candles(symbol: str, interval: str, limit: int) -> list:
     to_ts = int(time.time())
@@ -88,6 +106,21 @@ def get_ticker(symbol: str) -> dict:
         return data[0] if isinstance(data, list) else data
     logger.error(f"Failed to fetch ticker for {symbol}: {resp.status_code}")
     return {}
+
+
+# ── Historical Candles for Backtest ───────────────────
+def get_historical_candles(symbol: str, days: int) -> list:
+    if CANDLE_INTERVAL == "1D":
+        limit = days
+    else:
+        # Assuming CANDLE_INTERVAL is in minutes
+        limit = (days * 24 * 60) // int(CANDLE_INTERVAL)
+    
+    # Cap limit at 5000 if needed (CoinDCX typically has limits)
+    limit = min(limit, 5000)
+    
+    logger.info(f"Fetching {limit} historical candles for {symbol} ({days} days)")
+    return _fetch_candles(symbol, CANDLE_INTERVAL, limit)
 
 
 # ── Filtered Symbols ───────────────────────────────────

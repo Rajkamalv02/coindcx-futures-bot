@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 data/logs/
 test.py
+test_fills.py
+test_fills_v2.py
+test_fills_v3.py
+db_check.py
+data/trading_ledger.csv
