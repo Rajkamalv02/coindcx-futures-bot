@@ -29,18 +29,18 @@ def calculate_indicators(df: pd.DataFrame, symbol: str = "default") -> pd.DataFr
     if df.empty:
         return df
 
-    # EMA
-    df[f'ema_{EMA_FAST}']  = ta.ema(df['close'], length=EMA_FAST)
-    df[f'ema_{EMA_SLOW}']  = ta.ema(df['close'], length=EMA_SLOW)
-    df[f'ema_{EMA_TREND}'] = ta.ema(df['close'], length=EMA_TREND)
+    # EMA Calculations
+    df.loc[:, 'ema9'] = ta.ema(df['close'], length=9)
+    df.loc[:, 'ema21'] = ta.ema(df['close'], length=21)
+    df.loc[:, 'ema50'] = ta.ema(df['close'], length=50)
 
-    # ADX
-    adx_df = ta.adx(df['high'], df['low'], df['close'], length=ADX_PERIOD)
+    # ADX (Average Directional Index)
+    adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
     if adx_df is not None:
-        df['adx'] = adx_df[f'ADX_{ADX_PERIOD}']
+        df.loc[:, 'adx'] = adx_df['ADX_14']
 
-    # ATR
-    df['atr'] = ta.atr(df['high'], df['low'], df['close'], length=ATR_PERIOD)
+    # ATR (Average True Range)
+    df.loc[:, 'atr'] = ta.atr(df['high'], df['low'], df['close'], length=14)
 
     # MACD
     macd = ta.macd(df['close'], fast=MACD_FAST, slow=MACD_SLOW, signal=MACD_SIGNAL)
@@ -51,17 +51,17 @@ def calculate_indicators(df: pd.DataFrame, symbol: str = "default") -> pd.DataFr
     # Volume MA
     df['volume_ma'] = df['volume'].rolling(window=VOLUME_MA_PERIOD).mean()
 
-    # RSI (Re-added for overbought/oversold filtering)
-    df['rsi'] = ta.rsi(df['close'], length=14)
+    # RSI (Relative Strength Index)
+    df.loc[:, 'rsi'] = ta.rsi(df['close'], length=14)
 
     return df
 
 
 def get_confirm_trend(df_confirm: pd.DataFrame, symbol: str = "default") -> str:
     """
-    Stricter alignment for HTF confirmation:
-    Bullish: 9 > 21 > 50
-    Bearish: 9 < 21 < 50
+    Strict HTF confirmation using full EMA stack alignment:
+    Bullish: EMA9 > EMA21 > EMA50
+    Bearish: EMA9 < EMA21 < EMA50
     """
     if df_confirm.empty or len(df_confirm) < EMA_TREND + 2:
         return 'neutral'
@@ -76,8 +76,9 @@ def get_confirm_trend(df_confirm: pd.DataFrame, symbol: str = "default") -> str:
     if any(pd.isna(v) for v in [ema_fast, ema_slow, ema_trend]):
         return 'neutral'
 
-    if ema_fast > ema_slow:
+    # BUG-7 FIX: Full stack alignment — was only checking fast vs slow
+    if ema_fast > ema_slow > ema_trend:
         return 'bullish'
-    elif ema_fast < ema_slow:
+    elif ema_fast < ema_slow < ema_trend:
         return 'bearish'
     return 'neutral'
