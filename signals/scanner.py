@@ -100,14 +100,14 @@ def detect_signal(df: pd.DataFrame, symbol: str, confirm_trend: str = 'neutral')
     # 2. Hard Filters (EMA 50 and ADX) — checked on CURRENT candle,
     #    confirming the crossover is still valid now, not stale.
     if direction == "LONG" and close_curr <= ema_t_curr:
-        logger.debug(f"{symbol} LONG rejected: Price {close_curr:.5f} below EMA{EMA_TREND} {ema_t_curr:.5f}")
+        logger.info(f"⏩ {symbol} LONG rejected: Price {close_curr:.5f} below EMA{EMA_TREND} {ema_t_curr:.5f}")
         return None
     if direction == "SHORT" and close_curr >= ema_t_curr:
-        logger.debug(f"{symbol} SHORT rejected: Price {close_curr:.5f} above EMA{EMA_TREND} {ema_t_curr:.5f}")
+        logger.info(f"⏩ {symbol} SHORT rejected: Price {close_curr:.5f} above EMA{EMA_TREND} {ema_t_curr:.5f}")
         return None
 
     if adx_curr < ADX_MIN_THRESHOLD:
-        logger.debug(f"{symbol} {direction} rejected: ADX {adx_curr:.2f} below {ADX_MIN_THRESHOLD}")
+        logger.info(f"⏩ {symbol} {direction} rejected: ADX {adx_curr:.2f} below {ADX_MIN_THRESHOLD}")
         return None
 
     # ── Overextension & RSI Safety Filters ────────────
@@ -120,26 +120,26 @@ def detect_signal(df: pd.DataFrame, symbol: str, confirm_trend: str = 'neutral')
 
     if direction == "LONG":
         if rsi_curr > 75:
-            logger.info(f"  ⚠️ {symbol} LONG rejected: Overbought (RSI {rsi_curr:.1f})")
+            logger.info(f"⏩ {symbol} LONG rejected: Overbought (RSI {rsi_curr:.1f})")
             return None
         if dist_pct > OVEREXTENSION_PCT:
-            logger.info(f"  ⚠️ {symbol} LONG rejected: Overextended ({dist_pct:.1f}% from EMA9)")
+            logger.info(f"⏩ {symbol} LONG rejected: Overextended ({dist_pct:.1f}% from EMA9)")
             return None
     
     if direction == "SHORT":
         if rsi_curr < 25:
-            logger.info(f"  ⚠️ {symbol} SHORT rejected: Oversold (RSI {rsi_curr:.1f})")
+            logger.info(f"⏩ {symbol} SHORT rejected: Oversold (RSI {rsi_curr:.1f})")
             return None
         if dist_pct > OVEREXTENSION_PCT:
-            logger.info(f"  ⚠️ {symbol} SHORT rejected: Overextended ({dist_pct:.1f}% from EMA9)")
+            logger.info(f"⏩ {symbol} SHORT rejected: Overextended ({dist_pct:.1f}% from EMA9)")
             return None
 
     # 3. HTF Confirmation Check (4H alignment)
     if direction == "LONG" and confirm_trend != "bullish":
-        logger.debug(f"{symbol} LONG rejected: HTF trend is '{confirm_trend}' (needs 'bullish')")
+        logger.info(f"⏩ {symbol} LONG rejected: HTF trend is '{confirm_trend}' (needs 'bullish')")
         return None
     if direction == "SHORT" and confirm_trend != "bearish":
-        logger.debug(f"{symbol} SHORT rejected: HTF trend is '{confirm_trend}' (needs 'bearish')")
+        logger.info(f"⏩ {symbol} SHORT rejected: HTF trend is '{confirm_trend}' (needs 'bearish')")
         return None
 
     logger.debug(f"{symbol} {direction}: ALL GATES PASSED — building signal")
