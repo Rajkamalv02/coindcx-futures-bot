@@ -30,9 +30,9 @@ def calculate_indicators(df: pd.DataFrame, symbol: str = "default") -> pd.DataFr
         return df
 
     # EMA Calculations
-    df.loc[:, 'ema9'] = ta.ema(df['close'], length=9)
-    df.loc[:, 'ema21'] = ta.ema(df['close'], length=21)
-    df.loc[:, 'ema50'] = ta.ema(df['close'], length=50)
+    df.loc[:, f'ema_{EMA_FAST}'] = ta.ema(df['close'], length=EMA_FAST)
+    df.loc[:, f'ema_{EMA_SLOW}'] = ta.ema(df['close'], length=EMA_SLOW)
+    df.loc[:, f'ema_{EMA_TREND}'] = ta.ema(df['close'], length=EMA_TREND)
 
     # ADX (Average Directional Index)
     adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
