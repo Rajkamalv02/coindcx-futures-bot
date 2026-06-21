@@ -1,3 +1,7 @@
+import sys
+# Compatibility for Termux/Android to skip heavy optional dependencies
+sys.modules['numba'] = None
+
 import schedule
 import time
 import threading
