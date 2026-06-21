@@ -1,6 +1,19 @@
 import sys
-# Compatibility for Termux/Android to skip heavy optional dependencies
-sys.modules['numba'] = None
+from types import ModuleType
+
+# Compatibility for Termux/Android: Mock Numba to skip heavy optional dependencies
+class FakeNumba(ModuleType):
+    def jit(self, *args, **kwargs):
+        return lambda f: f
+    def njit(self, *args, **kwargs):
+        return lambda f: f
+    def __getattr__(self, name):
+        return None
+
+fake_numba = FakeNumba("numba")
+sys.modules["numba"] = fake_numba
+sys.modules["numba.pycc"] = fake_numba
+sys.modules["numba.typed"] = fake_numba
 
 import schedule
 import time
